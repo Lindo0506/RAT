@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAT - Repo Analysis Tool</title>
+<link rel="stylesheet" href="/css/style.css?v=3">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128202;</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">RAT</span>
+    <span class="brand-sub">Repo Analysis Tool</span>
+  </div>
+  <div class="topbar-repo" id="topbar-repo">
+    <span class="muted">no repository selected</span>
+  </div>
+  <div class="topbar-actions">
+    <span class="health" id="health" title="git availability">&hellip;</span>
+    <button class="btn btn-primary" id="btn-add-repo">+ Add repository</button>
+  </div>
+</header>
+
+<div class="layout">
+
+  <aside class="sidebar">
+    <section class="panel">
+      <h2 class="panel-title">Repositories</h2>
+      <div id="repo-list" class="repo-list"></div>
+    </section>
+
+    <section class="panel" id="filters-panel">
+      <h2 class="panel-title">Filters
+        <button class="btn btn-ghost btn-sm" id="btn-reset-filters" title="Clear every filter">reset</button>
+      </h2>
+
+      <label class="field">
+        <span class="field-label" title="Commits reachable from this reference (usually a branch or tag) form the analysed history.">Reference</span>
+        <select id="f-ref"></select>
+      </label>
+      <div class="range-custom" id="f-refcustom" hidden>
+        <label class="field"><span class="field-label">ref or commit sha</span>
+          <span class="inline-row">
+            <input type="text" id="f-ref-input" placeholder="sha, tag or branch" spellcheck="false">
+            <button class="btn btn-sm" id="btn-ref-apply" type="button">apply</button>
+          </span></label>
+      </div>
+
+      <label class="field">
+        <span class="field-label" title="H_t = commits committed at or after t. (committer date, UTC)">Period</span>
+        <select id="f-range">
+          <option value="all">All time</option>
+          <option value="30">Last 30 days</option>
+          <option value="90">Last 90 days</option>
+          <option value="180">Last 6 months</option>
+          <option value="365">Last year</option>
+          <option value="custom">Custom range&hellip;</option>
+        </select>
+      </label>
+      <div class="range-custom" id="f-custom" hidden>
+        <label class="field"><span class="field-label">from</span><input type="date" id="f-since"></label>
+        <label class="field"><span class="field-label">to</span><input type="date" id="f-until"></label>
+      </div>
+
+      <label class="field">
+        <span class="field-label" title="Restricts H to the commits of one merged author identity.">Author</span>
+        <select id="f-author"></select>
+      </label>
+
+      <div class="field">
+        <span class="field-label" title="H can also be a manually picked list of commits. When a list is active it replaces the period/reference set.">Commit set</span>
+        <div class="cset-row">
+          <span class="chip chip-cset" id="f-cset">all commits in filter</span>
+          <button class="btn btn-sm" id="btn-edit-cset">pick&hellip;</button>
+        </div>
+      </div>
+
+      <div id="filter-summary" class="filter-summary"></div>
+    </section>
+
+    <section class="panel muted-small">
+      <p>Metrics follow the test brief: <b>l&#8314;</b> added, <b>l&#8315;</b> removed,
+      <b>&delta;</b>=l&#8314;&minus;l&#8315;, <b>&lambda;</b>=l&#8314;+l&#8315;, <b>n</b> modifications,
+      <b>&eta;</b>=n/|H|, <b>&rho;</b>=&lambda;/|H|, <b>&omega;</b>=&lambda;<sub>a</sub>/&lambda;.
+      Binary files are not measured; renames are attributed to the new path.</p>
+    </section>
+  </aside>
+
+  <main class="content">
+    <nav class="tabs" id="tabs">
+      <button class="tab" data-tab="overview">Overview</button>
+      <button class="tab" data-tab="files">Files &amp; Directories</button>
+      <button class="tab" data-tab="authors">Authors</button>
+      <button class="tab" data-tab="commits">Commits</button>
+    </nav>
+
+    <div id="view-status" hidden></div>
+
+    <section class="view" id="view-overview">
+      <div class="cards" id="ov-cards"></div>
+      <div class="grid-2">
+        <div class="card chart-card">
+          <div class="card-head">
+            <h3>Activity timeline</h3>
+            <select id="ov-bucket" class="mini-select" title="Bucket size">
+              <option value="day">daily</option>
+              <option value="week">weekly</option>
+              <option value="month" selected>monthly</option>
+            </select>
+          </div>
+          <div class="chart" id="ov-timeline"></div>
+        </div>
+        <div class="card chart-card">
+          <div class="card-head"><h3>Churn by top-level object</h3><span class="muted-small">click a bar to open it</span></div>
+          <div class="chart" id="ov-bars"></div>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="card chart-card">
+          <div class="card-head"><h3>Author ownership <span class="muted-small">(&omega; by churn)</span></h3></div>
+          <div class="chart" id="ov-owners"></div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h3>Top files</h3>
+            <select id="ov-top-sort" class="mini-select">
+              <option value="churn">by churn</option>
+              <option value="growth">by net growth</option>
+              <option value="added">by added</option>
+              <option value="removed">by removed</option>
+              <option value="modifications">by modifications</option>
+            </select>
+          </div>
+          <div class="table-wrap" id="ov-top"></div>
+        </div>
+      </div>
+      <div class="card" id="ov-contributors-card">
+        <div class="card-head"><h3>Contributors</h3><span class="muted-small">commits &amp; churn in the current commit set</span></div>
+        <div class="table-wrap" id="ov-contributors"></div>
+      </div>
+    </section>
+
+    <section class="view" id="view-files" hidden>
+      <div class="card">
+        <div class="breadcrumb" id="files-breadcrumb"></div>
+        <div class="cards cards-sm" id="files-summary"></div>
+        <div class="files-actions" id="files-actions"></div>
+      </div>
+      <div class="grid-2">
+        <div class="card chart-card" id="files-chart-card">
+          <div class="card-head"><h3 id="files-chart-title">Churn by child</h3></div>
+          <div class="chart chart-sm" id="files-chart"></div>
+        </div>
+        <div class="card chart-card" id="files-owners-card" hidden>
+          <div class="card-head"><h3>Ownership of this file <span class="muted-small">(&omega;)</span></h3></div>
+          <div class="chart chart-sm" id="files-owners"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3 id="files-list-title">Contents</h3></div>
+        <div class="table-wrap" id="files-table"></div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h3>Top files in this subtree</h3>
+          <select id="files-top-sort" class="mini-select">
+            <option value="churn">by churn</option>
+            <option value="growth">by net growth</option>
+            <option value="modifications">by modifications</option>
+            <option value="added">by added</option>
+            <option value="removed">by removed</option>
+          </select>
+        </div>
+        <div class="table-wrap" id="files-top-table"></div>
+      </div>
+    </section>
+
+    <section class="view" id="view-authors" hidden>
+      <div class="card">
+        <div class="card-head">
+          <h3>Authors <span class="muted-small">mailmap merged automatically; merge more identities by hand</span></h3>
+          <div>
+            <button class="btn btn-sm" id="btn-reapply-mailmap" title="Re-read .mailmap from the active reference and merge matching identities">Re-apply .mailmap</button>
+            <button class="btn btn-sm btn-primary" id="btn-merge-authors">Merge identities&hellip;</button>
+          </div>
+        </div>
+        <div class="table-wrap" id="authors-table"></div>
+        <p class="muted-small" id="authors-note"></p>
+      </div>
+    </section>
+
+    <section class="view" id="view-commits" hidden>
+      <div class="card">
+        <div class="commits-toolbar">
+          <input type="search" id="cm-search" placeholder="Search sha or subject&hellip;" spellcheck="false">
+          <span class="chip chip-scope" id="cm-scope" hidden></span>
+          <span class="spacer"></span>
+          <span class="muted-small" id="cm-sel-info"></span>
+          <button class="btn btn-sm" id="cm-use-cset" hidden>Use selection as commit set</button>
+          <select id="cm-per" class="mini-select" title="Rows per page">
+            <option>25</option>
+            <option selected>50</option>
+            <option>100</option>
+            <option>250</option>
+          </select>
+        </div>
+        <div class="table-wrap" id="commits-table"></div>
+        <div class="pager" id="cm-pager"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- add repository modal -->
+<div class="modal-backdrop" id="modal-add" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Add repository</h3>
+      <button class="btn btn-ghost modal-close" data-close="modal-add">&times;</button>
+    </div>
+    <div class="modal-tabs">
+      <button class="mtab active" data-addtab="url">Clone from URL</button>
+      <button class="mtab" data-addtab="zip">Upload .zip</button>
+    </div>
+    <div class="modal-body">
+      <div id="add-pane-url">
+        <label class="field">
+          <span class="field-label">Repository URL <span class="muted-small">(https://, git://, ssh://, git@host:path, or a local path)</span></span>
+          <input type="text" id="add-url" placeholder="https://github.com/example/project.git" spellcheck="false">
+        </label>
+        <p class="muted-small">The repository is deep-cloned (bare mirror, so every branch and tag is available) and parsed locally. Large histories can take a little while.</p>
+        <button class="btn btn-primary" id="add-url-go">Clone &amp; analyze</button>
+      </div>
+      <div id="add-pane-zip" hidden>
+        <div class="dropzone" id="add-drop">
+          <p><b>Drop a .zip here</b> or</p>
+          <label class="btn btn-sm file-btn">choose a file<input type="file" id="add-file" accept=".zip" hidden></label>
+          <p class="muted-small">The archive must contain the repository with its <code>.git</code> directory (a bare repo works too).</p>
+        </div>
+        <div id="add-file-name" class="muted-small"></div>
+        <button class="btn btn-primary" id="add-zip-go" disabled>Upload &amp; analyze</button>
+        <div class="upload-bar" id="add-upload-bar" hidden><div class="upload-fill" id="add-upload-fill"></div></div>
+      </div>
+      <div class="ingest-status" id="add-status" hidden>
+        <div class="ingest-phase" id="add-phase"></div>
+        <div class="progress"><div class="progress-fill" id="add-progress"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- merge authors modal -->
+<div class="modal-backdrop" id="modal-merge" hidden>
+  <div class="modal modal-wide">
+    <div class="modal-head">
+      <h3>Merge author identities</h3>
+      <button class="btn btn-ghost modal-close" data-close="modal-merge">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="muted-small">Tick every identity that belongs to the same person. The merged author is used in every author metric, chart and filter.</p>
+      <input type="search" id="merge-search" placeholder="Search name or email&hellip;" spellcheck="false">
+      <div class="merge-list" id="merge-list"></div>
+      <div class="merge-fields">
+        <label class="field"><span class="field-label">Display name <span class="muted-small">(optional - taken from the identity with most commits)</span></span><input type="text" id="merge-name" placeholder="e.g. Linus Torvalds"></label>
+        <label class="field"><span class="field-label">Email (optional)</span><input type="text" id="merge-email" placeholder="e.g. torvalds@linux-foundation.org"></label>
+      </div>
+      <div class="modal-actions">
+        <span class="muted-small" id="merge-count">0 selected</span>
+        <button class="btn btn-primary" id="merge-go" disabled>Merge selected</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- commit picker modal -->
+<div class="modal-backdrop" id="modal-cset" hidden>
+  <div class="modal modal-wide">
+    <div class="modal-head">
+      <h3>Pick commits (manual commit set)</h3>
+      <button class="btn btn-ghost modal-close" data-close="modal-cset">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="muted-small">The picked list becomes H exactly: period and reference are ignored while a manual set is active (the author filter still applies).</p>
+      <div class="cset-toolbar">
+        <input type="search" id="cs-search" placeholder="Search sha or subject&hellip;" spellcheck="false">
+        <label class="check"><input type="checkbox" id="cs-page-all"> page</label>
+        <button class="btn btn-sm btn-ghost" id="cs-clear">clear all</button>
+        <span class="spacer"></span>
+        <span class="muted-small" id="cs-count">0 selected</span>
+      </div>
+      <div class="cset-list" id="cs-list"></div>
+      <div class="pager" id="cs-pager"></div>
+      <div class="modal-actions">
+        <button class="btn" data-close="modal-cset">Cancel</button>
+        <button class="btn btn-primary" id="cs-apply">Apply commit set</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- commit detail drawer -->
+<div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+<aside class="drawer" id="drawer" hidden>
+  <div class="drawer-head">
+    <h3>Commit</h3>
+    <button class="btn btn-ghost" id="drawer-close">&times;</button>
+  </div>
+  <div class="drawer-body" id="drawer-body"></div>
+</aside>
+
+<div class="toasts" id="toasts"></div>
+
+<script src="/vendor/echarts.min.js"></script>
+<script src="/js/views.js?v=3"></script>
+<script src="/js/app.js?v=5"></script>
+</body>
+</html>
